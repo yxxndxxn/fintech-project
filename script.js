@@ -162,7 +162,7 @@ document.querySelectorAll('.step').forEach(st=>st.onclick=()=>go(st.dataset.go))
 
 /* ---------- 색상 헬퍼 ---------- */
 function gradeKind(g){ return g==='A'?'ok':g==='B'?'warn':'risk'; }
-function scoreKind(s){ return s>70?'risk':(s>=40?'warn':'ok'); }
+function scoreKind(s){ return s>=75?'risk':(s>=40?'warn':'ok'); }
 function kindVar(k){ return k==='ok'?'var(--accent)':k==='warn'?'var(--warn)':'var(--risk)'; }
 function kindSoft(k){ return k==='ok'?'var(--accent-soft)':k==='warn'?'var(--warn-soft)':'var(--risk-soft)'; }
 function kindHex(k){ return k==='ok'?'#0E7C6B':k==='warn'?'#B26A00':'#C0392B'; }
