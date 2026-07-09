@@ -15,7 +15,16 @@ function erlang(lambda, mu, c){
 }
 
 const COST = {install:2500, monthly:30, minC:2, maxC:6}; // 만원 / 대
-const state = {bank:'hana', lambda:40, svcMin:5, targetMin:5, recC:4, chosenC:4, itmAllowed:true};
+const DEFAULT_BANK = '하나은행 강남역금융센터지점';
+const state = {bank:DEFAULT_BANK, lambda:40, svcMin:5, targetMin:5, recC:4, chosenC:4, itmAllowed:true};
+
+let BANKS = {};
+let BANKS_INDEX = [];
+const BRANCH_RENDER_BATCH = 60;
+
+function isAtmBranch(pairKey){
+  return String(pairKey).trim().toUpperCase().endsWith('ATM');
+}
 
 function mu(){ return 60/state.svcMin; } // 분→시간당 처리량
 
@@ -90,7 +99,7 @@ function renderStep3(){
     if(id==='tgt') state.targetMin=v;
     state.chosenC = computeRec(); // 가정 바뀌면 시뮬도 권고값 따라감
     renderStep3();
-    renderOverview(BANKS[state.bank], state.metrics);
+    renderOverview(getCurrentBank(), state.metrics);
   });
 });
 
@@ -160,7 +169,198 @@ document.querySelectorAll('.nav-item').forEach(n=>n.onclick=()=>go(n.dataset.s))
 document.querySelectorAll('.step').forEach(st=>st.onclick=()=>go(st.dataset.go));
 
 /* ---------- 은행별 데이터 ---------- */
-/* BANKS 객체는 banks.js 로 분리했습니다. (index.html에서 먼저 로드) */
+/* BANKS / BANKS_INDEX 는 data/banks.json, data/banks_index.json 에서 로드 */
+
+function getCurrentBank(){
+  return BANKS[state.bank] ?? null;
+}
+
+function setOverviewTitle(branch){
+  const title = branch ? `${branch} 전환 검토 요약` : '지점 전환 검토 요약';
+  const h1 = document.querySelector('section[data-s="ov"] h1');
+  if(h1) h1.textContent = title;
+}
+
+function showDataLoading(msg){
+  let el = document.getElementById('dataLoading');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'dataLoading';
+    el.className = 'data-loading';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.display = 'grid';
+}
+
+function hideDataLoading(){
+  const el = document.getElementById('dataLoading');
+  if(el) el.style.display = 'none';
+}
+
+async function loadBankCatalog(){
+  showDataLoading('지점 데이터 불러오는 중…');
+  const [indexRes, banksRes] = await Promise.all([
+    fetch('data/banks_index.json'),
+    fetch('data/banks.json'),
+  ]);
+  if(!indexRes.ok || !banksRes.ok){
+    throw new Error('banks data missing');
+  }
+  BANKS_INDEX = (await indexRes.json()).filter(item => !isAtmBranch(item.k));
+  BANKS = await banksRes.json();
+  hideDataLoading();
+}
+
+function filterBranches(query, limit=30){
+  const q = query.trim().toLowerCase();
+  if(!q) return BANKS_INDEX;
+  const results = [];
+  for(const item of BANKS_INDEX){
+    const hay = `${item.n} ${item.b} ${item.k} ${item.s}`.toLowerCase();
+    if(hay.includes(q)){
+      results.push(item);
+      if(results.length >= limit) break;
+    }
+  }
+  return results;
+}
+
+function escapeHtml(text){
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function initBranchSearch(){
+  const wrap = document.getElementById('branchSearch');
+  const input = document.getElementById('branchQuery');
+  const list = document.getElementById('branchResults');
+  if(!wrap || !input || !list) return;
+
+  let active = -1;
+  let debounce = null;
+  let currentItems = [];
+  let renderedCount = 0;
+
+  const hideList = () => {
+    list.hidden = true;
+    active = -1;
+    list.onscroll = null;
+    currentItems = [];
+    renderedCount = 0;
+  };
+
+  const makeResultItem = (item, i) => {
+    const li = document.createElement('li');
+    li.role = 'option';
+    li.dataset.k = item.k;
+    if(i === active) li.className = 'active';
+    li.innerHTML =
+      `<div class="bank-line">${escapeHtml(item.n)} ${escapeHtml(item.b)}</div>`+
+      `<div class="meta">${escapeHtml(item.s || '—')}</div>`;
+    return li;
+  };
+
+  const appendResultBatch = () => {
+    if(renderedCount >= currentItems.length) return;
+    const end = Math.min(renderedCount + BRANCH_RENDER_BATCH, currentItems.length);
+    const frag = document.createDocumentFragment();
+    for(let i = renderedCount; i < end; i++) frag.appendChild(makeResultItem(currentItems[i], i));
+    const hint = list.querySelector('.branch-results-hint');
+    list.insertBefore(frag, hint);
+    renderedCount = end;
+    if(hint){
+      const rest = currentItems.length - renderedCount;
+      hint.textContent = rest > 0
+        ? `${currentItems.length.toLocaleString()}개 지점 · 아래로 스크롤하면 더 보입니다`
+        : `${currentItems.length.toLocaleString()}개 지점`;
+    }
+  };
+
+  const renderResults = items => {
+    list.onscroll = null;
+    currentItems = items;
+    renderedCount = 0;
+    list.innerHTML = '';
+
+    if(!items.length){
+      list.innerHTML = '<li class="meta" style="cursor:default">검색 결과 없음</li>';
+      list.hidden = false;
+      return;
+    }
+
+    if(items.length > BRANCH_RENDER_BATCH){
+      const hint = document.createElement('li');
+      hint.className = 'branch-results-hint meta';
+      hint.style.cursor = 'default';
+      list.appendChild(hint);
+      list.onscroll = () => {
+        if(list.scrollTop + list.clientHeight >= list.scrollHeight - 24) appendResultBatch();
+      };
+    }
+
+    appendResultBatch();
+    list.hidden = false;
+    list.scrollTop = 0;
+  };
+
+  const pick = pairKey => {
+    if(!BANKS[pairKey]) return;
+    input.value = pairKey;
+    hideList();
+    loadBank(pairKey);
+  };
+
+  input.addEventListener('focus', () => renderResults(filterBranches(input.value)));
+  input.addEventListener('input', () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      active = -1;
+      renderResults(filterBranches(input.value));
+    }, 120);
+  });
+
+  list.addEventListener('mousedown', e => {
+    const li = e.target.closest('li[data-k]');
+    if(li) pick(li.dataset.k);
+  });
+
+  const syncActiveHighlight = () => {
+    const items = [...list.querySelectorAll('li[data-k]')];
+    items.forEach((li, i) => li.classList.toggle('active', i === active));
+    items[active]?.scrollIntoView({block:'nearest'});
+  };
+
+  const ensureRenderedThrough = idx => {
+    while(renderedCount <= idx && renderedCount < currentItems.length) appendResultBatch();
+  };
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'ArrowDown'){
+      e.preventDefault();
+      if(list.hidden) renderResults(filterBranches(input.value));
+      active = Math.min(active + 1, currentItems.length - 1);
+      ensureRenderedThrough(active);
+      syncActiveHighlight();
+    }else if(e.key === 'ArrowUp'){
+      e.preventDefault();
+      active = Math.max(active - 1, 0);
+      syncActiveHighlight();
+    }else if(e.key === 'Enter'){
+      if(active >= 0 && currentItems[active]) pick(currentItems[active].k);
+      else if(currentItems[0]) pick(currentItems[0].k);
+    }else if(e.key === 'Escape'){
+      hideList();
+    }
+  });
+
+  document.addEventListener('click', e => {
+    if(!wrap.contains(e.target)) hideList();
+  });
+}
 
 /* ---------- 색상 헬퍼 ---------- */
 function gradeKind(g){ return g==='A'?'ok':g==='B'?'warn':'risk'; }
@@ -450,26 +650,41 @@ function renderOverview(b, m){
 }
 
 /* ---------- 은행 전환 ---------- */
-function loadBank(id){
-  state.bank=id;
-  const b=BANKS[id];
+function loadBank(pairKey){
+  const b = BANKS[pairKey];
+  if(!b) return;
+  state.bank = pairKey;
   state.metrics = computeMetrics(b);
-  state.lambda=b.s3.lambda; state.svcMin=b.s3.svc;
-  document.getElementById('lam').value=b.s3.lambda;
-  document.getElementById('svc').value=b.s3.svc;
-  state.chosenC=computeRec();
+  state.lambda = b.s3.lambda;
+  state.svcMin = b.s3.svc;
+  document.getElementById('lam').value = b.s3.lambda;
+  document.getElementById('svc').value = b.s3.svc;
+  state.chosenC = computeRec();
   renderStep1(b, state.metrics);
   renderStep2(b, state.metrics);
   renderGate(state.metrics);
   renderStep3();
   renderOverview(b, state.metrics);
-  document.getElementById('branchName').textContent=b.branch;
+  document.getElementById('branchName').textContent = b.branch;
+  const query = document.getElementById('branchQuery');
+  if(query) query.value = `${b.name} ${b.branch}`.trim();
+  setOverviewTitle(b.branch);
 }
 
 /* init */
-const bankSel=document.getElementById('bankSel');
-Object.entries(BANKS).forEach(([id,b])=>{
-  const o=document.createElement('option'); o.value=id; o.textContent=b.name; bankSel.appendChild(o);
-});
-bankSel.addEventListener('change', e=>loadBank(e.target.value));
-loadBank('hana');
+async function boot(){
+  try{
+    await loadBankCatalog();
+    initBranchSearch();
+    const start = BANKS[DEFAULT_BANK] ? DEFAULT_BANK : BANKS_INDEX[0]?.k;
+    if(start) loadBank(start);
+    else hideDataLoading();
+  }catch(err){
+    hideDataLoading();
+    const msg = '지점 데이터를 불러오지 못했습니다. 로컬 서버에서 실행하거나 `py scripts/generate_banks.py` 로 data/banks.json 을 생성하세요.';
+    showDataLoading(msg);
+    console.error(err);
+  }
+}
+
+boot();

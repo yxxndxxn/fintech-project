@@ -16,8 +16,11 @@
   </div>
   <div class="branch-pick">
     <div class="dot"></div>
-    <select id="bankSel" aria-label="평가 대상 은행"></select>
-    <em id="branchName">상도동지점</em>
+    <div class="branch-search" id="branchSearch">
+      <input type="text" id="branchQuery" placeholder="지점 검색 (은행명·지점명·지역)" autocomplete="off" aria-label="평가 대상 지점 검색">
+      <ul id="branchResults" class="branch-results" role="listbox" hidden></ul>
+    </div>
+    <em id="branchName">—</em>
   </div>
   <div class="verdict-chip" id="topVerdict">
     <span class="r">종합 판정</span> 조건부 전환 · ITM 4대
@@ -249,7 +252,6 @@
 
 
 <script src="data/pairs.js"></script>
-<script src="banks.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
