@@ -125,8 +125,8 @@
   .risk-bars{flex:1;display:flex;flex-direction:column;gap:12px}
   .rb-row{display:flex;align-items:center;gap:10px;font-size:12.5px}
   .rb-row .lab{width:96px;color:var(--ink-2);font-weight:600}
-  .rb-track{flex:1;height:8px;background:var(--line-2);border-radius:4px;overflow:hidden}
-  .rb-fill{height:100%;border-radius:4px}
+  .rb-track{flex:1;min-width:0;height:8px;background:var(--line-2);border-radius:4px;overflow:hidden}
+  .rb-fill{display:block;height:100%;min-width:0;border-radius:4px;transition:width .5s ease}
   .rb-row .val{width:34px;text-align:right;font-weight:700;font-size:12px}
 
   /* grade badge */
@@ -142,8 +142,8 @@
   .barset{display:flex;flex-direction:column;gap:11px}
   .bar-row{display:flex;align-items:center;gap:10px;font-size:12.5px}
   .bar-row .lab{width:64px;color:var(--ink-2);font-weight:600}
-  .bar-track{flex:1;height:22px;background:var(--line-2);border-radius:6px;overflow:hidden}
-  .bar-fill{height:100%;background:var(--accent);border-radius:6px;transition:width .5s}
+  .bar-track{flex:1;min-width:0;height:22px;background:var(--line-2);border-radius:6px;overflow:hidden}
+  .bar-fill{display:block;height:100%;min-width:0;background:var(--accent);border-radius:6px;transition:width .5s ease}
   .bar-fill.mut{background:var(--ink-3)}
   .bar-row .pct{width:40px;text-align:right;font-weight:700}
 
@@ -270,3 +270,7 @@
     background:var(--line-2);border-radius:9px;line-height:1.55;
   }
   .note b{color:var(--ink-2)}
+  .note.warn-note{background:var(--warn-soft);color:var(--warn);border:1px solid rgba(178,106,0,.15)}
+  .note.warn-note b{color:var(--warn)}
+  .nav-item.nav-locked{opacity:.45}
+  .nav-item.nav-locked .st{opacity:.5}

@@ -93,7 +93,6 @@
           <div class="card-h">입력 지표 <span class="hint">· 지점/지역 데이터</span></div>
           <div class="card-b">
             <table class="data tnum" id="s1table"></table>
-            <div class="src-tag">◷ 팀원 수집 중 — 값 확정 시 자동 반영</div>
           </div>
         </div>
 
@@ -108,7 +107,7 @@
                     stroke-linecap="round" stroke-dasharray="339.29"
                     stroke-dashoffset="129" />
                 </svg>
-                <div class="v"><b id="s1score">62</b><small>영향도 (100점)</small></div>
+                <div class="v"><b id="s1score">62</b><small id="s1scoreLabel">통합 영향도 (100점)</small></div>
               </div>
               <div class="risk-bars" id="s1risks"></div>
             </div>
@@ -162,7 +161,7 @@
           </div>
         </div>
       </div>
-      <div class="note">등급 기준 — <b>A 적합</b>: 대면 의존 낮음, ITM 최소 · <b>B 조건부</b>: ITM으로 대면 흡수 필요 · <b>C 부적합</b>: 대면 의존 높아 전환 보류.</div>
+      <div class="note">등급 기준 — <b>A 적합</b>: 취약점수(A) 낮음·접근성(B) 양호 · <b>B 조건부</b>: A 또는 B 중간 · <b>C 부적합</b>: A 높음(≥8) 등으로 ITM 용량 산출 보류.</div>
     </section>
 
     <!-- ===== STEP 3 ===== -->
@@ -170,6 +169,8 @@
       <div class="eyebrow">STEP 3 · CAPACITY PLANNING</div>
       <h1>ITM 최적 설치 대수</h1>
       <p class="sub">STEP 2에서 "ITM으로 대면 거래를 흡수한다"고 정했으니, 이제 몇 대가 필요한지 계산합니다. 아래 값을 바꾸면 추천 대수가 실시간으로 바뀌어요.</p>
+
+      <div class="note warn-note" id="s3gate" style="display:none;margin-bottom:16px"></div>
 
       <div class="grid g2">
         <div class="card">
@@ -221,6 +222,8 @@
       <div class="eyebrow">STEP 4 · OPERATION SIMULATION</div>
       <h1>운영 시뮬레이션</h1>
       <p class="sub">권고안대로 설치했을 때 실제 창구가 어떻게 돌아가는지 그림으로 봅니다. 대수를 바꿔가며 대기 줄이 어떻게 변하는지 확인해보세요.</p>
+
+      <div class="note warn-note" id="s4gate" style="display:none;margin-bottom:16px"></div>
 
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:600;color:var(--ink-2)">설치 대수</span>

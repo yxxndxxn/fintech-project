@@ -15,7 +15,7 @@ function erlang(lambda, mu, c){
 }
 
 const COST = {install:2500, monthly:30, minC:2, maxC:6}; // 만원 / 대
-const state = {bank:'hana', lambda:40, svcMin:5, targetMin:5, recC:4, chosenC:4};
+const state = {bank:'hana', lambda:40, svcMin:5, targetMin:5, recC:4, chosenC:4, itmAllowed:true};
 
 function mu(){ return 60/state.svcMin; } // 분→시간당 처리량
 
@@ -38,10 +38,11 @@ function renderStep3(){
   document.getElementById('oTgt').textContent = state.targetMin;
 
   const rec = computeRec();
-  const m = mu();
-  const rr = erlang(state.lambda, m, rec);
+  const muRate = mu();
+  const rr = erlang(state.lambda, muRate, rec);
   document.getElementById('recNum').textContent = rec;
   document.getElementById('recNote').innerHTML =
+    (state.itmAllowed ? '' : '<span style="color:var(--warn)">※ STEP 2 부적합 — 참고용 시뮬레이션입니다.<br></span>')+
     `목표 대기 <b>${state.targetMin}분</b> 이내를 만족하는 <b>최소 대수</b>입니다.<br>`+
     `예상 평균 대기 <b>${rr.wqMin.toFixed(1)}분</b> · 이용률 <b>${(rr.rho*100).toFixed(0)}%</b>. `+
     `더 늘리면 대기는 줄지만 투자·운영비가 커집니다.`;
@@ -50,7 +51,7 @@ function renderStep3(){
   const body = document.getElementById('cmpBody');
   body.innerHTML = '';
   for(let c=COST.minC;c<=COST.maxC;c++){
-    const r = erlang(state.lambda, m, c);
+    const r = erlang(state.lambda, muRate, c);
     const tr = document.createElement('tr');
     if(c===rec) tr.className='pick';
     else if(!r.stable) tr.className='bad';
@@ -70,10 +71,11 @@ function renderStep3(){
   // 개요/헤더 동기화
   document.getElementById('ovRec').innerHTML = rec+'<small>대 권고</small>';
   document.getElementById('ovWait').innerHTML = rr.wqMin.toFixed(1)+'<small>분</small>';
-  const cb = BANKS[state.bank];
-  document.getElementById('topVerdict').innerHTML = cb.hold
-    ? `<span class="r">종합 판정</span> ${cb.verdict}`
-    : `<span class="r">종합 판정</span> ${cb.verdict} · ITM ${rec}대`;
+  const metrics = state.metrics;
+  const showItm = state.itmAllowed && !metrics.hold;
+  document.getElementById('topVerdict').innerHTML = showItm
+    ? `<span class="r">종합 판정</span> ${metrics.verdict} · ITM ${rec}대`
+    : `<span class="r">종합 판정</span> ${metrics.verdict}`;
 
   // STEP4 선택값이 범위 밖이면 권고값으로
   if(state.chosenC < COST.minC || state.chosenC > COST.maxC) state.chosenC = rec;
@@ -88,7 +90,7 @@ function renderStep3(){
     if(id==='tgt') state.targetMin=v;
     state.chosenC = computeRec(); // 가정 바뀌면 시뮬도 권고값 따라감
     renderStep3();
-    renderOverview(BANKS[state.bank]);
+    renderOverview(BANKS[state.bank], state.metrics);
   });
 });
 
@@ -171,6 +173,181 @@ function setNavDot(s,k){
   if(el) el.className='st st-'+k;
 }
 
+/* ---------- 지표·판정 (취약점 A + 접근성 B 통합) ---------- */
+function rowVal(b, label){
+  const row = b.s1.rows.find(r => r[0] === label);
+  if(!row) return null;
+  const n = parseFloat(String(row[1]).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function getVulnA(b){ return rowVal(b, '디지털 전환 취약점수(A)'); }
+
+function getAccessB(pairKey){
+  const d = pairKey ? getNearest(pairKey) : null;
+  return d !== null ? Math.min(100, Math.round(d * 10)) : null;
+}
+
+function digitalSubstitute(channels){
+  return Math.round(100 - (channels?.[2] ?? 0));
+}
+
+function distLabel(km){
+  if(km === null) return '—';
+  const m = Math.round(km * 1000);
+  return m < 1000 ? m + 'm' : km.toFixed(1) + 'km';
+}
+
+function closureComponent(elderly, distKm, monthly){
+  const e = elderly >= 30 ? 30 : elderly >= 20 ? 20 : elderly >= 10 ? 10 : 0;
+  const d = distKm === null ? 0 : distKm >= 5 ? 30 : distKm >= 2 ? 20 : distKm >= 1 ? 10 : 0;
+  const m = monthly >= 7000 ? 20 : monthly >= 4000 ? 10 : 0;
+  return Math.min(100, e + d + m);
+}
+
+function riskColor(v){
+  return v >= 70 ? '#C0392B' : v >= 40 ? '#B26A00' : '#0E7C6B';
+}
+
+function ratingElderly(v){
+  return v >= 70 ? '매우높음' : v >= 40 ? '보통' : '낮음';
+}
+function ratingAccess(v){
+  return v >= 70 ? '나쁨' : v >= 40 ? '보통' : v >= 10 ? '낮음' : '매우낮음';
+}
+function ratingVolume(v){
+  return v >= 88 ? '매우높음' : v >= 70 ? '높음' : v >= 40 ? '보통' : '낮음';
+}
+function ratingDigital(v){
+  return v >= 70 ? '높음' : v >= 40 ? '보통' : '낮음';
+}
+function ratingVulnA(a){
+  return a >= 8 ? '높음' : a >= 6 ? '보통' : '낮음';
+}
+
+/** 취약점.pdf: A(취약도) + B(접근성) + 채널 → STEP 2 등급 */
+function computeGradeAB(vulnA, accessB, digital){
+  const a = vulnA ?? 0;
+  const b = accessB ?? 0;
+  if(a >= 8 || (a >= 7.5 && b >= 30)) return {grade:'C', gradeLabel:'부적합'};
+  if(a >= 6 || b >= 40) return {grade:'B', gradeLabel:'조건부 적합'};
+  if(digital >= 50 && a < 6) return {grade:'A', gradeLabel:'적합'};
+  return {grade:'B', gradeLabel:'조건부 적합'};
+}
+
+function buildRisks(elderly, accessB, monthly, digital, vulnA){
+  const v1 = Math.round(elderly * 2.5);
+  const v2 = accessB ?? 0;
+  const v3 = Math.min(100, Math.round(monthly / 100));
+  const v4 = digital;
+  const vA = Math.min(100, Math.round((vulnA ?? 0) * 10));
+  return [
+    ['고령 고객 의존', v1, riskColor(v1), ratingElderly(v1)],
+    ['대체 접근성(B)', v2, riskColor(v2), ratingAccess(v2)],
+    ['거래량 규모', v3, riskColor(v3), ratingVolume(v3)],
+    ['디지털 대체성', v4, riskColor(v4), ratingDigital(v4)],
+    ['취약점수(A)', vA, riskColor(vA), ratingVulnA(vulnA ?? 0)],
+  ];
+}
+
+/** 폐쇄요인 + A + B → 통합 영향도·판정 (script.js 단일 진실 공급원) */
+function computeMetrics(b){
+  const pairKey = b.pairKey ?? null;
+  const distKm = pairKey ? getNearest(pairKey) : null;
+  const vulnA = getVulnA(b);
+  const accessB = getAccessB(pairKey);
+  const elderly = rowVal(b, '65세 이상 고령자 비율') ?? 0;
+  const monthly = rowVal(b, '월 창구 거래 건수') ?? 0;
+  const digital = digitalSubstitute(b.s2.channels);
+  const closureScore = closureComponent(elderly, distKm, monthly);
+  const integratedScore = Math.min(100, Math.round(
+    closureScore * 0.25 + (vulnA ?? 0) * 6 + (accessB ?? 0) * 0.2
+  ));
+  const gradeInfo = computeGradeAB(vulnA, accessB, digital);
+  const hold = integratedScore >= 75 || (gradeInfo.grade === 'C' && (vulnA ?? 0) >= 8);
+  const ovClass = integratedScore >= 75 ? 'risk' : integratedScore >= 40 ? 'warn' : 'ok';
+  const itmAllowed = !hold && gradeInfo.grade !== 'C';
+  const distTxt = distLabel(distKm);
+  const aTxt = vulnA !== null ? vulnA.toFixed(1) : '—';
+  const bTxt = accessB !== null ? String(accessB) : '—';
+
+  let verdict, ovTitle, ovBody, s1note, s2note;
+  const nonFace = Math.round((b.s2.channels[0] ?? 0) + (b.s2.channels[1] ?? 0));
+
+  if(hold){
+    verdict = '전환 보류 · 창구 유지 권고';
+    ovTitle = '종합 판정: 전환 보류 (창구 유지 권고)';
+    ovBody = `통합 영향도 ${integratedScore}점, 취약점수(A) ${aTxt}, 접근성(B) ${bTxt}로 폐쇄·전환 부담이 큽니다. ITM 용량 산출 전 창구 유지를 권고합니다.`;
+    s1note = `통합 영향도 <b>${integratedScore}점</b>(폐쇄요인 ${closureScore}+A·B 반영). <b>전환 보류</b> 구간입니다.`;
+  }else if(gradeInfo.grade === 'C'){
+    verdict = '전환 재검토';
+    ovTitle = '종합 판정: 전환 재검토 (디지털 취약도 높음)';
+    ovBody = `취약점수(A) ${aTxt}, 접근성(B) ${bTxt}, 고령자 ${elderly}%로 디지털 전환 취약도가 높습니다. 창구 유지 또는 단계적 전환 후 ITM 용량을 검토하세요.`;
+    s1note = `통합 영향도 ${integratedScore}점, A ${aTxt}·B ${bTxt}로 <b>디지털 전환 취약도가 높습니다</b>. STEP 3·4는 참고용입니다.`;
+  }else if(gradeInfo.grade === 'A'){
+    verdict = '전환 적합';
+    ovTitle = '종합 판정: 전환 적합 (ITM __REC__대면 충분)';
+    ovBody = `A ${aTxt}, B ${bTxt}, 대체 점포 ${distTxt} 이내, 디지털 대체성 ${digital}%입니다. ITM __REC__대로 목표 대기시간(__TGT__분)을 충족할 수 있습니다.`;
+    s1note = `통합 영향도 ${integratedScore}점, A ${aTxt}·B ${bTxt}·대체 ${distTxt}로 <b>폐쇄 영향이 작습니다</b>.`;
+  }else{
+    verdict = '조건부 전환';
+    ovTitle = '종합 판정: 조건부 전환 (ITM __REC__대 설치 권고)';
+    ovBody = `A ${aTxt}, B ${bTxt}, 고령자 ${elderly}%입니다. ITM __REC__대 설치·고령 고객 안내로 목표 대기시간(__TGT__분) 내 운영이 가능합니다.`;
+    s1note = `통합 영향도 ${integratedScore}점, A ${aTxt}·B ${bTxt}로 <b>조건부 전환</b>이 적절합니다.`;
+  }
+
+  if(gradeInfo.grade === 'A'){
+    s2note = `비대면 ${nonFace}%, A ${aTxt}, B ${bTxt}로 디지털 전환 부담이 낮습니다. <b>ITM 전환 적합</b>합니다.`;
+  }else if(gradeInfo.grade === 'B'){
+    s2note = `A ${aTxt}, B ${bTxt}, 대면 창구 ${b.s2.channels[2]}%입니다. 고령층 거래 <b>ITM 흡수 조건</b>에서 전환 가능합니다.`;
+  }else{
+    s2note = `A ${aTxt}, B ${bTxt}로 취약·접근성 부담이 큽니다. <b>현 시점 일괄 무인 전환은 부적합</b>합니다.`;
+  }
+
+  return {
+    distKm, vulnA, accessB, digital, elderly, monthly,
+    closureScore, integratedScore, hold, ovClass, itmAllowed,
+    grade: gradeInfo.grade, gradeLabel: gradeInfo.gradeLabel,
+    verdict, ovTitle, ovBody, s1note, s2note,
+    risks: buildRisks(elderly, accessB, monthly, digital, vulnA),
+  };
+}
+
+function transitionGate(m){
+  if(m.hold){
+    return {
+      ok:false,
+      msg:`통합 영향도 ${m.integratedScore}점으로 전환 보류입니다. STEP 1·2 판정 충족 후 ITM 용량을 산출하세요.`,
+    };
+  }
+  if(m.grade === 'C'){
+    return {
+      ok:false,
+      msg:`취약점수(A) ${m.vulnA?.toFixed(1) ?? '—'}, 접근성(B) ${m.accessB ?? '—'} 기준 디지털 전환 부적합입니다. 창구 유지 또는 단계적 전환 후 다시 검토하세요.`,
+    };
+  }
+  return {ok:true, msg:''};
+}
+
+function renderGate(m){
+  const gate = transitionGate(m);
+  state.itmAllowed = gate.ok;
+  const html = gate.ok ? '' : gate.msg;
+  ['s3gate', 's4gate'].forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.style.display = gate.ok ? 'none' : 'block';
+    el.innerHTML = html ? `<b>ITM 용량 산출 참고:</b> ${html}` : '';
+  });
+  document.querySelectorAll('.nav-item[data-s="s3"], .nav-item[data-s="s4"]').forEach(n => {
+    n.classList.toggle('nav-locked', !gate.ok);
+  });
+  ['lam', 'svc', 'tgt'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.disabled = !gate.ok;
+  });
+}
+
 /* ---------- PAIRS 연동 헬퍼 ---------- */
 // PAIRS는 data/pairs.js 에서 전역으로 로드됨 (index.html에서 먼저 로드)
 
@@ -205,78 +382,87 @@ function renderNearbyTable(pairKey){
 }
 
 /* ---------- STEP 1 렌더 ---------- */
-function renderStep1(b){
-  const s=b.s1;
+function renderStep1(b, m){
   const pairKey = b.pairKey ?? null;
-
-  // 가장 가까운 대체 점포 거리를 PAIRS에서 실시간으로 덮어씀
   const nearestDist = pairKey ? getNearest(pairKey) : null;
-  const rows = s.rows.map(r=>{
+  let rows = b.s1.rows.map(r=>{
     if(r[0] === '가장 가까운 대체 점포'){
       const val = nearestDist !== null ? nearestDist.toFixed(1) : r[1];
       return [r[0], val, r[2]];
     }
     return r;
   });
+  if(m.accessB !== null && !rows.some(r => r[0] === '접근성 지표(B)')){
+    const aIdx = rows.findIndex(r => r[0] === '디지털 전환 취약점수(A)');
+    const bRow = ['접근성 지표(B)', String(m.accessB), '점'];
+    rows = aIdx >= 0 ? [...rows.slice(0, aIdx + 1), bRow, ...rows.slice(aIdx + 1)] : [...rows, bRow];
+  }
 
   document.getElementById('s1table').innerHTML =
     rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}<span class="u">${r[2]}</span></td></tr>`).join('');
-  document.getElementById('s1score').textContent = s.score;
-  const C=339.29, off=(C*(1-s.score/100)).toFixed(0);
+  document.getElementById('s1score').textContent = m.integratedScore;
+  const lbl = document.getElementById('s1scoreLabel');
+  if(lbl) lbl.textContent = `통합 영향도 (폐쇄 ${m.closureScore}+A·B)`;
+  const C=339.29, off=(C*(1-m.integratedScore/100)).toFixed(0);
   const arc=document.getElementById('s1arc');
   arc.setAttribute('stroke-dashoffset', off);
-  arc.setAttribute('stroke', kindHex(scoreKind(s.score)));
-  document.getElementById('s1risks').innerHTML = s.risks.map(r=>
-    `<div class="rb-row"><span class="lab">${r[0]}</span><span class="rb-track"><span class="rb-fill" style="width:${r[1]}%;background:${r[2]}"></span></span><span class="val">${r[3]}</span></div>`).join('');
-  document.getElementById('s1note').innerHTML = '<b>해석:</b> '+s.note;
-  setNavDot('s1', scoreKind(s.score));
-
-  // 인근 시설 테이블 갱신
+  arc.setAttribute('stroke', kindHex(scoreKind(m.integratedScore)));
+  document.getElementById('s1risks').innerHTML = m.risks.map(r=>{
+    const pct = Math.max(0, Math.min(100, Number(r[1]) || 0));
+    return `<div class="rb-row"><span class="lab">${r[0]}</span><span class="rb-track"><span class="rb-fill" style="width:${pct}%;background:${r[2]}"></span></span><span class="val">${r[3]}</span></div>`;
+  }).join('');
+  document.getElementById('s1note').innerHTML = '<b>해석:</b> '+m.s1note;
+  setNavDot('s1', scoreKind(m.integratedScore));
   renderNearbyTable(pairKey);
 }
 
 /* ---------- STEP 2 렌더 ---------- */
-function renderStep2(b){
+function renderStep2(b, m){
   const s=b.s2;
   const ageLab=['20~30대','40~50대','60대+'];
-  document.getElementById('s2ages').innerHTML = s.ages.map((v,i)=>
-    `<div class="bar-row"><span class="lab">${ageLab[i]}</span><span class="bar-track"><span class="bar-fill${i===2?' mut':''}" style="width:${v}%"></span></span><span class="pct">${v}%</span></div>`).join('');
+  document.getElementById('s2ages').innerHTML = s.ages.map((v,i)=>{
+    const pct = Math.max(0, Math.min(100, Number(v) || 0));
+    return `<div class="bar-row"><span class="lab">${ageLab[i]}</span><span class="bar-track"><span class="bar-fill${i===2?' mut':''}" style="width:${pct}%"></span></span><span class="pct">${pct}%</span></div>`;
+  }).join('');
   const chLab=['모바일','자동화기기','대면 창구'];
-  document.getElementById('s2channels').innerHTML = s.channels.map((v,i)=>
-    `<div class="bar-row"><span class="lab">${chLab[i]}</span><span class="bar-track"><span class="bar-fill${i===2?' mut':''}" style="width:${v}%"></span></span><span class="pct">${v}%</span></div>`).join('');
-  const k=gradeKind(s.grade);
+  document.getElementById('s2channels').innerHTML = s.channels.map((v,i)=>{
+    const pct = Math.max(0, Math.min(100, Number(v) || 0));
+    return `<div class="bar-row"><span class="lab">${chLab[i]}</span><span class="bar-track"><span class="bar-fill${i===2?' mut':''}" style="width:${pct}%"></span></span><span class="pct">${pct}%</span></div>`;
+  }).join('');
+  const k=gradeKind(m.grade);
   const badge=document.getElementById('s2badge');
-  badge.textContent=s.grade; badge.style.background=kindSoft(k); badge.style.color=kindVar(k);
-  document.getElementById('s2gradetxt').innerHTML=`<b>${s.gradeLabel}</b><p>${s.note}</p>`;
+  badge.textContent=m.grade; badge.style.background=kindSoft(k); badge.style.color=kindVar(k);
+  document.getElementById('s2gradetxt').innerHTML=`<b>${m.gradeLabel}</b><p>${m.s2note}</p>`;
   setNavDot('s2', k);
 }
 
 /* ---------- 개요 렌더 ---------- */
-function renderOverview(b){
+function renderOverview(b, m){
   const rec=state.recC;
-  document.getElementById('ovBannerT').textContent = b.ovTitle.replace(/__REC__/g,rec);
-  document.getElementById('ovBannerB').textContent = b.ovBody.replace(/__REC__/g,rec).replace(/__TGT__/g,state.targetMin);
-  const k=b.ovClass;
-  document.getElementById('ovBanner').style.background=kindSoft(k);
-  document.getElementById('ovIcon').style.background=kindVar(k);
-  document.getElementById('ovStep1').innerHTML=b.s1.score+'<small>/100 영향도</small>';
-  document.getElementById('ovStep2').innerHTML=b.s2.grade+'<small> '+b.s2.gradeLabel+'</small>';
-  document.getElementById('ovFlag1').className='flag st-'+scoreKind(b.s1.score);
-  document.getElementById('ovFlag2').className='flag st-'+gradeKind(b.s2.grade);
+  document.getElementById('ovBannerT').textContent = m.ovTitle.replace(/__REC__/g,rec);
+  document.getElementById('ovBannerB').textContent = m.ovBody.replace(/__REC__/g,rec).replace(/__TGT__/g,state.targetMin);
+  document.getElementById('ovBanner').style.background=kindSoft(m.ovClass);
+  document.getElementById('ovIcon').style.background=kindVar(m.ovClass);
+  document.getElementById('ovStep1').innerHTML=m.integratedScore+'<small>/100 통합영향</small>';
+  document.getElementById('ovFlag1').className='flag st-'+scoreKind(m.integratedScore);
+  document.getElementById('ovStep2').innerHTML=m.grade+'<small> '+m.gradeLabel+'</small>';
+  document.getElementById('ovFlag2').className='flag st-'+gradeKind(m.grade);
 }
 
 /* ---------- 은행 전환 ---------- */
 function loadBank(id){
   state.bank=id;
   const b=BANKS[id];
+  state.metrics = computeMetrics(b);
   state.lambda=b.s3.lambda; state.svcMin=b.s3.svc;
   document.getElementById('lam').value=b.s3.lambda;
   document.getElementById('svc').value=b.s3.svc;
-  state.chosenC=computeRec();       // state.recC 확정
-  renderStep1(b);
-  renderStep2(b);
-  renderStep3();                    // 권고/비교표/헤더 판정/개요 STEP3·4 갱신
-  renderOverview(b);                // 확정된 recC로 배너·파이프라인 갱신
+  state.chosenC=computeRec();
+  renderStep1(b, state.metrics);
+  renderStep2(b, state.metrics);
+  renderGate(state.metrics);
+  renderStep3();
+  renderOverview(b, state.metrics);
   document.getElementById('branchName').textContent=b.branch;
 }
 
