@@ -15,7 +15,7 @@ function erlang(lambda, mu, c){
 }
 
 const COST = {install:2500, monthly:30, minC:2, maxC:6}; // 만원 / 대
-const state = {bank:'woori', lambda:40, svcMin:5, targetMin:5, recC:4, chosenC:4};
+const state = {bank:'hana', lambda:40, svcMin:5, targetMin:5, recC:4, chosenC:4};
 
 function mu(){ return 60/state.svcMin; } // 분→시간당 처리량
 
@@ -171,11 +171,56 @@ function setNavDot(s,k){
   if(el) el.className='st st-'+k;
 }
 
+/* ---------- PAIRS 연동 헬퍼 ---------- */
+// PAIRS는 data/pairs.js 에서 전역으로 로드됨 (index.html에서 먼저 로드)
+
+/** 가장 가까운 대체 시설까지의 거리(km) 반환. 없으면 null */
+function getNearest(pairKey){
+  const entry = (typeof PAIRS !== 'undefined') ? PAIRS[pairKey] : null;
+  if(!entry?.인근?.length) return null;
+  return entry.인근[0].거리;
+}
+
+/** 10km 이내 대체 시설 배열 전체 반환. 없으면 [] */
+function getNearbyList(pairKey){
+  const entry = (typeof PAIRS !== 'undefined') ? PAIRS[pairKey] : null;
+  return entry?.인근 ?? [];
+}
+
+/** #s1nearby tbody를 인근 시설 목록으로 채움 */
+function renderNearbyTable(pairKey){
+  const tbody = document.getElementById('s1nearby');
+  if(!tbody) return;
+  const list = getNearbyList(pairKey);
+  if(!list.length){
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--ink-3);padding:14px">10km 이내 동종 대체 시설 없음</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(n=>`
+    <tr>
+      <td style="text-align:left;font-weight:600">${n.지점}</td>
+      <td style="text-align:left;font-weight:400;color:var(--ink-2);font-size:12px">${n.주소}</td>
+      <td>${n.거리.toFixed(1)} km</td>
+    </tr>`).join('');
+}
+
 /* ---------- STEP 1 렌더 ---------- */
 function renderStep1(b){
   const s=b.s1;
+  const pairKey = b.pairKey ?? null;
+
+  // 가장 가까운 대체 점포 거리를 PAIRS에서 실시간으로 덮어씀
+  const nearestDist = pairKey ? getNearest(pairKey) : null;
+  const rows = s.rows.map(r=>{
+    if(r[0] === '가장 가까운 대체 점포'){
+      const val = nearestDist !== null ? nearestDist.toFixed(1) : r[1];
+      return [r[0], val, r[2]];
+    }
+    return r;
+  });
+
   document.getElementById('s1table').innerHTML =
-    s.rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}<span class="u">${r[2]}</span></td></tr>`).join('');
+    rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}<span class="u">${r[2]}</span></td></tr>`).join('');
   document.getElementById('s1score').textContent = s.score;
   const C=339.29, off=(C*(1-s.score/100)).toFixed(0);
   const arc=document.getElementById('s1arc');
@@ -185,6 +230,9 @@ function renderStep1(b){
     `<div class="rb-row"><span class="lab">${r[0]}</span><span class="rb-track"><span class="rb-fill" style="width:${r[1]}%;background:${r[2]}"></span></span><span class="val">${r[3]}</span></div>`).join('');
   document.getElementById('s1note').innerHTML = '<b>해석:</b> '+s.note;
   setNavDot('s1', scoreKind(s.score));
+
+  // 인근 시설 테이블 갱신
+  renderNearbyTable(pairKey);
 }
 
 /* ---------- STEP 2 렌더 ---------- */
@@ -238,4 +286,4 @@ Object.entries(BANKS).forEach(([id,b])=>{
   const o=document.createElement('option'); o.value=id; o.textContent=b.name; bankSel.appendChild(o);
 });
 bankSel.addEventListener('change', e=>loadBank(e.target.value));
-loadBank('woori');
+loadBank('hana');

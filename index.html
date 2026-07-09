@@ -116,6 +116,21 @@
           </div>
         </div>
       </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h">인근 대체 시설 <span class="hint">· 10km 이내 · 같은 회사·같은 유형</span></div>
+        <div class="card-b">
+          <table class="cmp tnum">
+            <thead><tr>
+              <th style="text-align:left">지점명</th>
+              <th style="text-align:left">주소</th>
+              <th>거리</th>
+            </tr></thead>
+            <tbody id="s1nearby"></tbody>
+          </table>
+          <div class="note" style="margin-top:10px">10km 이내 같은 회사·같은 유형의 대체 시설 목록입니다. 이 시설이 많고 가까울수록 <b>폐쇄 영향이 낮아</b> 사전평가 점수에 반영됩니다.</div>
+        </div>
+      </div>
     </section>
 
     <!-- ===== STEP 2 ===== -->
@@ -230,6 +245,7 @@
 </div>
 
 
+<script src="data/pairs.js"></script>
 <script src="banks.js"></script>
 <script src="script.js"></script>
 </body>
